@@ -5,10 +5,10 @@ This repo contains a simple Eth2 [weak subjectivity](https://github.com/ethereum
 ## Prerequisites
 - Python 3.8 or higher
 - An [Eth2 API endpoint](https://ethereum.github.io/eth2.0-APIs/)
-- Docker (if you want to run this as Docker instance)
+<!-- - Docker (if you want to run this as Docker instance) -->
 
 ## Launching the server
-### Running as a Docker instance
+<!-- ### Running as a Docker instance
 
 - Fill in `ETH2_API` with your Eth2 API endpoint
 - Build the docker image:
@@ -18,7 +18,7 @@ docker build -t eth2-ws-server .
 - Run as a docker instance:
 ```bash
 sudo docker run -p 80:80 eth2-ws-server
-```
+``` -->
 
 ### Running on host machine
 
