@@ -10,13 +10,14 @@ This repo contains a simple Eth2 [weak subjectivity](https://github.com/ethereum
 ## Launching the server
 ### Running as a Docker instance
 
+- Fill in `ETH2_API` with your Eth2 API endpoint
 - Build the docker image:
 ```bash
-  docker build -t eth2_ws_server .
+  docker build -t eth2-ws-server .
 ```
 - Run as a docker instance:
 ```bash
-  sudo docker run -p 80:80 eth2_ws_server
+  sudo docker run -p 80:80 eth2-ws-server
 ```
 
 ### Running on host machine
@@ -24,6 +25,10 @@ This repo contains a simple Eth2 [weak subjectivity](https://github.com/ethereum
 - Run the makefile to install all dependencies in a venv:
 ```bash
   make install
+```
+- Provide your Eth2 API endpoint by running:
+```bash
+export ETH2_API=<your Eth2 API endpoint>
 ```
 - Activate the venv and run the server:
 ```bash
