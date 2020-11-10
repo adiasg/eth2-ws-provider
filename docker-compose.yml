@@ -1,0 +1,18 @@
+version: "3.3"
+
+services:
+  redis:
+    image: "redis"
+    ports:
+      - 6379
+  eth2_ws_server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: "eth2_ws_server"
+    env_file:
+      - .env
+    depends_on:
+      - redis
+    ports:
+      - 0.0.0.0:8080:80

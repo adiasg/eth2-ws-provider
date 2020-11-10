@@ -2,10 +2,22 @@ import httpx
 import os
 from eth2spec.phase0.spec import *
 from flask import Flask, jsonify
+import redis
+import time
+import json
+import logging
+
+logging.basicConfig(format='%(asctime)s -- %(levelname)s -- %(message)s')
+logging.getLogger().setLevel(logging.INFO)
 app = Flask(__name__)
 
-# If running this server on your host machine (outside of docker), then
-# run `export ETH2_API=<your Eth2 API endpoint>` before launching this server
+# MIN_CACHE_UPDATE_PERIOD is the minimum amount of time between consecutive updates of the cached weak subjectivity data
+MIN_CACHE_UPDATE_PERIOD = SECONDS_PER_SLOT * SLOTS_PER_EPOCH // 2
+
+# If running this server on your host machine (outside of docker), then:
+# 1. change the redis host to 'localhost' (or wherever your redis instance is running)
+# 2. run `export ETH2_API=<your Eth2 API endpoint>` before launching this server
+r = redis.Redis(host='redis')
 ETH2_API = os.environ['ETH2_API']
 
 def get_json(url):
@@ -40,7 +52,7 @@ def compute_weak_subjectivity_period(validator_count) -> uint64:
         weak_subjectivity_period += SAFETY_DECAY * validator_count // (2 * 100 * MIN_PER_EPOCH_CHURN_LIMIT)
     return weak_subjectivity_period
 
-def get_ws_checkpoint_data():
+def get_ws_data():
     finalized_checkpoint = get_finalized_checkpoint()
     active_validator_count = get_active_validator_count_at_finalized()
     ws_period = compute_weak_subjectivity_period(active_validator_count)
@@ -56,6 +68,23 @@ def get_ws_checkpoint_data():
         "is_safe": current_epoch_in_ws_period
     }
 
+
+def update_redis_cache():
+    logging.info(f'Fetching weak subjectivity data from {ETH2_API}')
+    ws_data = get_ws_data()
+    r.set('ws_data_cache', json.dumps({"time": time.time(), "ws_data": ws_data}))
+    logging.info(f'Updated redis cache: {ws_data}')
+    return ws_data
+
+def get_redis_cache():
+    cache_data_bytes = r.get('ws_data_cache')
+    if cache_data_bytes is None:
+        return update_redis_cache()
+    cache_data = json.loads(cache_data_bytes.decode('utf-8'))
+    if time.time() - cache_data["time"] > MIN_CACHE_UPDATE_PERIOD:
+        return update_redis_cache()
+    return cache_data["ws_data"]
+
 @app.route('/')
 def serve_ws_data():
-    return jsonify(get_ws_checkpoint_data())
+    return jsonify(get_redis_cache())
