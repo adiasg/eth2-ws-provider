@@ -3,39 +3,20 @@
 This repo contains a simple Eth2 [weak subjectivity](https://github.com/ethereum/eth2.0-specs/blob/dev/specs/phase0/weak-subjectivity.md) provider server.
 
 ## Prerequisites
-- Python 3.8 or higher
-- An [Eth2 API endpoint](https://ethereum.github.io/eth2.0-APIs/)
-<!-- - Docker (if you want to run this as Docker instance) -->
+- Docker Engine
+- Docker Compose
 
 ## Launching the server
-<!-- ### Running as a Docker instance
-
-- Fill in `ETH2_API` with your Eth2 API endpoint
-- Build the docker image:
-```bash
-docker build -t eth2-ws-server .
-```
-- Run as a docker instance:
-```bash
-sudo docker run -p 80:80 eth2-ws-server
-``` -->
-
-### Running on host machine
-
-- Run the makefile to install all dependencies in a venv:
-```bash
-make install
-```
-- Provide your Eth2 API endpoint by running:
-```bash
-export ETH2_API=<your Eth2 API endpoint>
-```
-- Activate the venv and run the server:
-```bash
-. venv/bin/activate
-uwsgi --http 0.0.0.0:9090 --wsgi ws_server:app
-```
-
+1. Build the containers:
+  - Copy `./default.env` to `./.env` and fill in your `ETH2_API`
+  - Build the docker image:
+  ```bash
+  docker-compose build
+  ```
+2. Run the server on the standard HTTP port `80`:
+  ```bash
+  docker-compose up
+  ```
 
 ## User guide
 
