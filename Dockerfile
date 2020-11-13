@@ -3,6 +3,6 @@ COPY ./Makefile ./Makefile
 RUN make docker
 COPY ./ws_server.py ./ws_server.py
 EXPOSE 80
+COPY ./uwsgi_config.ini ./uwsgi_config.ini
 
-CMD [ "uwsgi", "--http", "0.0.0.0:80", \
-               "--wsgi", "ws_server:app" ]
+CMD [ "uwsgi", "uwsgi_config.ini" ]

@@ -11,33 +11,47 @@ logging.basicConfig(format='%(asctime)s -- %(levelname)s -- %(message)s')
 logging.getLogger().setLevel(logging.INFO)
 app = Flask(__name__)
 
-# MIN_CACHE_UPDATE_PERIOD is the minimum amount of time between consecutive updates of the cached weak subjectivity data
-MIN_CACHE_UPDATE_PERIOD = SECONDS_PER_SLOT * SLOTS_PER_EPOCH // 2
-
-# If running this server on your host machine (outside of docker), then:
+# If running this server on your host machine (without the standard docker-compose startup instructions), then:
 # 1. change the redis host to 'localhost' (or wherever your redis instance is running)
-# 2. run `export ETH2_API=<your Eth2 API endpoint>` before launching this server
-r = redis.Redis(host='redis')
-ETH2_API = os.environ['ETH2_API']
+# 2. run `export ETH2_API=<your Eth2 API endpoint>` and `export MIN_CACHE_UPDATE_EPOCHS=<number of epochs>` before launching this server
 
-def get_json(url):
-    response = httpx.get(url)
+r = redis.Redis(host='redis')
+# ETH2_API is your Eth2 beacon node's HTTP endpoint
+ETH2_API = os.environ['ETH2_API']
+# MIN_CACHE_UPDATE_EPOCHS is the minimum number of epochs between consecutive updates of the cached weak subjectivity data
+MIN_CACHE_UPDATE_EPOCHS = int(os.environ['MIN_CACHE_UPDATE_EPOCHS'])
+# Optional graffiti to serve in the HTTP JSON response
+WS_SERVER_GRAFFITI = os.getenv('WS_SERVER_GRAFFITI')
+
+def query_eth2_api(endpoint):
+    url = ETH2_API + endpoint
+    response = httpx.get(url, timeout=100)
     if response.status_code != 200:
-        raise Exception(f"GET {url} returned with status code {response.status_code}")
+        raise Exception(f"GET {url} returned with status code {response.status_code} and message {response.json()['message']}")
     return response.json()
 
+def get_current_epoch():
+    genesis_time_cache = r.get('genesis_time')
+    if genesis_time_cache is None:
+        genesis = query_eth2_api('/eth/v1/beacon/genesis')
+        genesis_time = int(genesis["data"]["genesis_time"])
+        r.set('genesis_time', genesis_time)
+    else:
+        genesis_time = int(genesis_time_cache.decode('utf-8'))
+    current_slot = (time.time() - genesis_time) // SECONDS_PER_SLOT
+    return compute_epoch_at_slot(int(current_slot))
+
 def get_finalized_checkpoint():
-    finality_checkpoints = get_json(ETH2_API + '/eth/v1/beacon/states/finalized/finality_checkpoints')
+    finality_checkpoints = query_eth2_api('/eth/v1/beacon/states/finalized/finality_checkpoints')
     finalized_checkpoint = finality_checkpoints["data"]["finalized"]
     return finalized_checkpoint
 
-def get_current_slot():
-    head = get_json(ETH2_API + '/eth/v1/beacon/headers/head')
-    slot = head["data"]["header"]["message"]["slot"]
-    return int(slot)
+def get_state_root_at_block(block_root):
+    block = query_eth2_api(f'/eth/v1/beacon/blocks/{block_root}')
+    return block["data"]["message"]["state_root"]
 
-def get_active_validator_count_at_finalized():
-    validators = get_json(ETH2_API + f'/eth/v1/beacon/states/finalized/validators')
+def get_active_validator_count_at_state(state_root):
+    validators = query_eth2_api(f'/eth/v1/beacon/states/{state_root}/validators')
     active_validator_count = 0
     for v in validators["data"]:
         if type(v["status"]) == str and v["status"].lower().startswith("active"):
@@ -45,6 +59,8 @@ def get_active_validator_count_at_finalized():
     return active_validator_count
 
 def compute_weak_subjectivity_period(validator_count) -> uint64:
+    # Compute the weak subjectivity period as described in eth2.0-specs:
+    # https://github.com/ethereum/eth2.0-specs/blob/dev/specs/phase0/weak-subjectivity.md#calculating-the-weak-subjectivity-period
     weak_subjectivity_period = MIN_VALIDATOR_WITHDRAWABILITY_DELAY
     if validator_count >= MIN_PER_EPOCH_CHURN_LIMIT * CHURN_LIMIT_QUOTIENT:
         weak_subjectivity_period += SAFETY_DECAY * CHURN_LIMIT_QUOTIENT // (2 * 100)
@@ -52,39 +68,66 @@ def compute_weak_subjectivity_period(validator_count) -> uint64:
         weak_subjectivity_period += SAFETY_DECAY * validator_count // (2 * 100 * MIN_PER_EPOCH_CHURN_LIMIT)
     return weak_subjectivity_period
 
-def get_ws_data():
-    finalized_checkpoint = get_finalized_checkpoint()
-    active_validator_count = get_active_validator_count_at_finalized()
-    ws_period = compute_weak_subjectivity_period(active_validator_count)
-    current_slot = get_current_slot()
-    current_epoch = compute_epoch_at_slot(current_slot)
-    finalized_epoch = int(finalized_checkpoint["epoch"])
-    current_epoch_in_ws_period = (current_epoch - finalized_epoch < ws_period)
-
-    return {
-        "current_epoch": current_epoch,
-        "ws_checkpoint": f'{finalized_checkpoint["root"]}:{finalized_epoch}',
-        "ws_period": ws_period,
-        "is_safe": current_epoch_in_ws_period
-    }
-
-
-def update_redis_cache():
+def update_ws_data_cache():
     logging.info(f'Fetching weak subjectivity data from {ETH2_API}')
-    ws_data = get_ws_data()
-    r.set('ws_data_cache', json.dumps({"time": time.time(), "ws_data": ws_data}))
-    logging.info(f'Updated redis cache: {ws_data}')
+    finalized_checkpoint = get_finalized_checkpoint()
+    finalized_epoch = int(finalized_checkpoint["epoch"])
+    finalized_block_root = finalized_checkpoint["root"]
+    finalized_state_root = get_state_root_at_block(finalized_block_root)
+    active_validator_count = get_active_validator_count_at_state(finalized_state_root)
+    ws_period = compute_weak_subjectivity_period(active_validator_count)
+    ws_data = {
+        "finalized_epoch": finalized_epoch,
+        "ws_checkpoint": f'{finalized_block_root}:{finalized_epoch}',
+        "ws_period": ws_period,
+    }
+    current_epoch = get_current_epoch()
+    ws_data_cache = {
+        "caching_epoch": current_epoch,
+        "ws_data": ws_data
+    }
+    logging.info(f"Updating redis cache key 'ws_data_cache' with {ws_data_cache}")
+    r.set('ws_data_cache', json.dumps(ws_data_cache))
     return ws_data
 
-def get_redis_cache():
-    cache_data_bytes = r.get('ws_data_cache')
-    if cache_data_bytes is None:
-        return update_redis_cache()
-    cache_data = json.loads(cache_data_bytes.decode('utf-8'))
-    if time.time() - cache_data["time"] > MIN_CACHE_UPDATE_PERIOD:
-        return update_redis_cache()
-    return cache_data["ws_data"]
+def get_ws_data():
+    ws_data_cache_bytes = r.get('ws_data_cache')
+    # If redis cache is empty, initialize it
+    if ws_data_cache_bytes is None:
+        return update_ws_data_cache()
+    ws_data_cache = json.loads(ws_data_cache_bytes.decode('utf-8'))
+    logging.debug(f"Got from redis cache for key 'ws_data_cache': {ws_data_cache}")
+    # Refresh redis cache if it has been more than MIN_CACHE_UPDATE_EPOCHS since last update
+    if get_current_epoch() - ws_data_cache["caching_epoch"] > MIN_CACHE_UPDATE_EPOCHS:
+        return update_ws_data_cache()
+    ws_data = ws_data_cache["ws_data"]
+    current_epoch = get_current_epoch()
+    # Refresh redis cache if the current epoch is outside of the WS safety period since last update
+    current_epoch_in_ws_period = (current_epoch - ws_data["finalized_epoch"] < ws_data["ws_period"])
+    if not current_epoch_in_ws_period:
+        return update_ws_data_cache()
+    return ws_data
+
+def prepare_response():
+    ws_data = get_ws_data()
+    current_epoch = get_current_epoch()
+    current_epoch_in_ws_period = (current_epoch - ws_data["finalized_epoch"] < ws_data["ws_period"])
+    response = {
+        "current_epoch": current_epoch,
+        "ws_checkpoint": ws_data["ws_checkpoint"],
+        "ws_period": ws_data["ws_period"],
+        "is_safe": current_epoch_in_ws_period
+    }
+    if WS_SERVER_GRAFFITI:
+        response['graffiti'] = WS_SERVER_GRAFFITI
+    return response
+
+# Update redis cache on startup
+logging.info(f"Initializing cache. Server will be ready soon.")
+get_current_epoch()
+update_ws_data_cache()
+logging.info(f"Cache initialized. Ready to serve requests.")
 
 @app.route('/')
 def serve_ws_data():
-    return jsonify(get_redis_cache())
+    return jsonify(prepare_response())
