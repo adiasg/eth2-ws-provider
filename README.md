@@ -17,6 +17,11 @@ This repo contains a simple Eth2 [weak subjectivity](https://github.com/ethereum
 - The default port is `80`. This may be changed by editing the port mapping for `eth2_ws_server` in `docker-compose.yml`.
 - This application uses the `uwsgi` Python server. For advanced settings of `uwsgi`, load the desired configuration (such as number of processes & threads) in the `uwsgi_config.ini` file
 
+#### Using a Eth2 Beacon Node running in a Docker container
+If your Eth2 beacon node is running inside a Docker container on the same machine, you will have to use the pre-existing Docker network to connect to the beacon node:
+- Find the name of the pre-existing Docker network that your Eth2 beacon node container is using. This will be the top-level JSON key returned by: `docker inspect <NAME_OF_CONTAINER> -f "{{json .NetworkSettings.Networks}}"`
+- In `docker-compose.yml`, uncomment the `networks` section and enter the name of the pre-existing Docker network in the `name` entry.
+
 ## User guide
 
 The Eth2 WS server will serve the following data in JSON format:

@@ -16,3 +16,10 @@ services:
       - redis
     ports:
       - "0.0.0.0:80:80"
+
+# Uncomment the below section to use a pre-existing docker network
+# networks:
+#   default:
+#     external:
+#       # Enter the name of the pre-existing docker network you want to use
+#       name: "bridge"
