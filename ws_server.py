@@ -50,6 +50,14 @@ def get_state_root_at_block(block_root):
     block = query_eth2_api(f'/eth/v1/beacon/blocks/{block_root}')
     return block["data"]["message"]["state_root"]
 
+def get_active_validator_count_at_finalized():
+    validators = query_eth2_api(f'/eth/v1/beacon/states/finalized/validators')
+    active_validator_count = 0
+    for v in validators["data"]:
+        if type(v["status"]) == str and v["status"].lower().startswith("active"):
+            active_validator_count += 1
+    return active_validator_count
+
 def get_active_validator_count_at_state(state_root):
     validators = query_eth2_api(f'/eth/v1/beacon/states/{state_root}/validators')
     active_validator_count = 0
@@ -68,13 +76,23 @@ def compute_weak_subjectivity_period(validator_count) -> uint64:
         weak_subjectivity_period += SAFETY_DECAY * validator_count // (2 * 100 * MIN_PER_EPOCH_CHURN_LIMIT)
     return weak_subjectivity_period
 
-def update_ws_data_cache():
-    logging.info(f'Fetching weak subjectivity data from {ETH2_API}')
+def atomic_get_finalized_checkpoint_and_validator_count():
     finalized_checkpoint = get_finalized_checkpoint()
     finalized_epoch = int(finalized_checkpoint["epoch"])
+    active_validator_count = get_active_validator_count_at_finalized()
+    # Re-check finalized_checkpoint to see if it changed between the last two API calls
+    now_finalized_checkpoint = get_finalized_checkpoint()
+    now_finalized_epoch = int(now_finalized_checkpoint["epoch"])
+    if now_finalized_epoch != finalized_epoch:
+        return atomic_get_finalized_checkpoint_and_validator_count()
+
+    return finalized_checkpoint, active_validator_count
+
+def update_ws_data_cache():
+    logging.info(f'Fetching weak subjectivity data from {ETH2_API}')
+    finalized_checkpoint, active_validator_count = atomic_get_finalized_checkpoint_and_validator_count()
+    finalized_epoch = int(finalized_checkpoint["epoch"])
     finalized_block_root = finalized_checkpoint["root"]
-    finalized_state_root = get_state_root_at_block(finalized_block_root)
-    active_validator_count = get_active_validator_count_at_state(finalized_state_root)
     ws_period = compute_weak_subjectivity_period(active_validator_count)
     ws_data = {
         "finalized_epoch": finalized_epoch,
