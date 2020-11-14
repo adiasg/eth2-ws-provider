@@ -9,7 +9,7 @@ This repo contains a simple Eth2 [weak subjectivity](https://github.com/ethereum
 
 ## Launching the server
 1. Build the containers:
-  - Copy `./default.env` to `./.env` and fill in your `ETH2_API` in `./.env`
+  - Copy `default.env` to `.env` and fill in your `ETH2_API` in `.env`
   - Build the docker image using: `docker-compose build`
 2. Run the server using: `docker-compose up`.
 
@@ -17,10 +17,11 @@ This repo contains a simple Eth2 [weak subjectivity](https://github.com/ethereum
 - The default port is `80`. This may be changed by editing the port mapping for `eth2_ws_server` in `docker-compose.yml`.
 - This application uses the `uwsgi` Python server. For advanced settings of `uwsgi`, load the desired configuration (such as number of processes & threads) in the `uwsgi_config.ini` file
 
-#### Using a Eth2 Beacon Node running in a Docker container
-If your Eth2 beacon node is running inside a Docker container on the same machine, you will have to use the pre-existing Docker network to connect to the beacon node:
-- Find the name of the pre-existing Docker network that your Eth2 beacon node container is using. This will be the top-level JSON key returned by: `docker inspect <NAME_OF_CONTAINER> -f "{{json .NetworkSettings.Networks}}"`
-- In `docker-compose.yml`, uncomment the `networks` section and enter the name of the pre-existing Docker network in the `name` entry.
+#### Connecting to Beacon Node running in a Docker container
+If your beacon node is running inside a Docker container on the same machine, you will have to connect to it as follows:
+- Find the gateway that the beacon node container uses in the Docker network using: `docker inspect <CONTAINER_NAME> -f "{{json .NetworkSettings.Gateway}}"`
+- For the `ETH2_API` variable in the `.env` file, use this gateway IP and the host port that you have mapped to the beacon node container's HTTP API port.
+- For example, if the gateway used by the beacon node container is `172.17.0.1` and the HTTP API port of the beacon node is mapped to host port `5052`, set `ETH2_API=http://172.17.0.1:5052`
 
 ## User guide
 
