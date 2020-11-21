@@ -1,4 +1,4 @@
-REQS = flask httpx redis uwsgi
+REQS = flask httpx redis uwsgi pyyaml
 
 # To use a specific Eth2 spec version, enter the commit hash here and uncomment relevant lines
 # ETH2_SPEC_COMMIT =

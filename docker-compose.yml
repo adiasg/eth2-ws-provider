@@ -10,8 +10,8 @@ services:
       context: .
       dockerfile: Dockerfile
     image: "eth2_ws_server"
-    env_file:
-      - .env
+    volumes:
+      - .:/app
     depends_on:
       - redis
     ports:
