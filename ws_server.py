@@ -11,7 +11,7 @@ import json
 import logging
 import yaml
 
-with open("/app/config.yaml", "r") as config_file:
+with open("/app/config.yml", "r") as config_file:
     cfg = yaml.safe_load(config_file)
 logging.basicConfig(format='%(asctime)s -- %(levelname)s -- %(message)s')
 logging.getLogger().setLevel(logging.INFO)
@@ -147,6 +147,9 @@ def get_ws_data():
     ws_data_cache_bytes = r.get('ws_data_cache')
     # If redis cache is empty, initialize it
     if ws_data_cache_bytes is None:
+        logging.debug(
+            "No 'ws_data_cache' in cache. Initializing cache now."
+        )
         return update_ws_data_cache()
     ws_data_cache = json.loads(ws_data_cache_bytes.decode('utf-8'))
     logging.debug(
@@ -154,20 +157,28 @@ def get_ws_data():
     )
     # Refresh redis cache if it has been more than MIN_CACHE_UPDATE_EPOCHS
     # since last update
+    current_epoch = get_current_epoch()
     cache_expired = (
-        get_current_epoch() - ws_data_cache["caching_epoch"]
+        current_epoch - ws_data_cache["caching_epoch"]
         > MIN_CACHE_UPDATE_EPOCHS
     )
     if cache_expired:
+        logging.debug(
+            "Cached value for 'ws_data_cache' has expired - "
+            f"ws_data_cache: {ws_data_cache}, current epoch: {current_epoch}"
+        )
         return update_ws_data_cache()
     ws_data = ws_data_cache["ws_data"]
-    current_epoch = get_current_epoch()
     # Refresh redis cache if the current epoch is outside of the WS safety
     # period since last update
     current_epoch_in_ws_period = (
         current_epoch - ws_data["finalized_epoch"] < ws_data["ws_period"]
     )
     if not current_epoch_in_ws_period:
+        logging.info(
+            "Cached value for 'ws_data_cache' is unsafe - "
+            f"ws_data_cache: {ws_data_cache}, current epoch: {current_epoch}"
+        )
         return update_ws_data_cache()
     return ws_data
 
