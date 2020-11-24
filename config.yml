@@ -1,0 +1,18 @@
+# Eth2 API endpoint
+eth2_api: http://<IP>:<PORT>
+
+# Optional graffiti to display in your JSON response
+ws_server_graffiti: 
+
+# Minimum number of epochs between consecutive updates of the cached weak subjectivity data
+min_cache_update_epochs: 10
+
+# Hostname for Redis server
+redis: redis
+
+# uwsgi server configuration
+uwsgi:
+  wsgi: ws_server:app
+  http: 0.0.0.0:80
+  processes: 1
+  threads: 1
