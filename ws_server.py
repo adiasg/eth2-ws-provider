@@ -1,8 +1,10 @@
 import httpx
 from eth2spec.phase0.spec import (
+    Gwei, uint64,
     compute_epoch_at_slot,
-    CHURN_LIMIT_QUOTIENT, MIN_PER_EPOCH_CHURN_LIMIT,
-    MIN_VALIDATOR_WITHDRAWABILITY_DELAY, SAFETY_DECAY, SECONDS_PER_SLOT
+    CHURN_LIMIT_QUOTIENT, MAX_DEPOSITS, MAX_EFFECTIVE_BALANCE,
+    MIN_PER_EPOCH_CHURN_LIMIT, MIN_VALIDATOR_WITHDRAWABILITY_DELAY,
+    SAFETY_DECAY, SECONDS_PER_SLOT, SLOTS_PER_EPOCH
 )
 from flask import Flask, jsonify
 import redis
@@ -61,71 +63,81 @@ def get_state_root_at_block(block_root):
     return block["data"]["message"]["state_root"]
 
 
-def get_active_validator_count_at_finalized():
-    validators = query_eth2_api('/eth/v1/beacon/states/finalized/validators')
-    active_validator_count = 0
-    for v in validators["data"]:
-        is_active_validator = (
-            type(v["status"]) == str
-            and v["status"].lower().startswith("active")
-        )
-        if is_active_validator:
-            active_validator_count += 1
-    return active_validator_count
-
-
-def get_active_validator_count_at_state(state_root):
+def get_validator_count_and_average_balance_at_state(state_id):
     validators = query_eth2_api(
-        f'/eth/v1/beacon/states/{state_root}/validators'
+        f'/eth/v1/beacon/states/{state_id}/validators'
     )
-    active_validator_count = 0
+    validator_count = 0
+    total_balance = Gwei(0)
     for v in validators["data"]:
         is_active_validator = (
             type(v["status"]) == str
             and v["status"].lower().startswith("active")
         )
         if is_active_validator:
-            active_validator_count += 1
-    return active_validator_count
+            validator_count += 1
+            total_balance += Gwei(int(v["validator"]["effective_balance"]))
+    average_active_validator_balance = total_balance // validator_count
+    return validator_count, average_active_validator_balance
 
 
-def compute_weak_subjectivity_period(validator_count):
+def get_validator_churn_limit(validator_count):
+    return max(
+        MIN_PER_EPOCH_CHURN_LIMIT,
+        uint64(validator_count) // CHURN_LIMIT_QUOTIENT
+    )
+
+
+def compute_weak_subjectivity_period(
+        validator_count, average_active_validator_balance):
     # Compute the weak subjectivity period as described in eth2.0-specs:
     # https://github.com/ethereum/eth2.0-specs/blob/dev/specs/phase0/weak-subjectivity.md#calculating-the-weak-subjectivity-period
     weak_subjectivity_period = MIN_VALIDATOR_WITHDRAWABILITY_DELAY
-    if validator_count >= MIN_PER_EPOCH_CHURN_LIMIT * CHURN_LIMIT_QUOTIENT:
-        weak_subjectivity_period += (
-            (SAFETY_DECAY * CHURN_LIMIT_QUOTIENT) // (2 * 100)
-        )
-    else:
-        weak_subjectivity_period += (
-            (SAFETY_DECAY * validator_count)
-            // (2 * 100 * MIN_PER_EPOCH_CHURN_LIMIT)
-        )
+    # Term appearing in the weak subjectivity period calculation due to top-up
+    # limits
+    top_up_term = (
+        MAX_DEPOSITS * SLOTS_PER_EPOCH
+        * (MAX_EFFECTIVE_BALANCE - average_active_validator_balance)
+    )
+    # Term appearing in the weak subjectivity period calculation due to
+    # deposits
+    deposit_term = (
+        get_validator_churn_limit(validator_count)
+        * (MAX_EFFECTIVE_BALANCE + 2 * average_active_validator_balance)
+    )
+    weak_subjectivity_period += (
+        (3 * SAFETY_DECAY * validator_count * average_active_validator_balance)
+        // (2 * 100 * (deposit_term + top_up_term))
+    )
     return weak_subjectivity_period
 
 
-def atomic_get_finalized_checkpoint_and_validator_count():
+def atomic_get_finalized_checkpoint():
     finalized_checkpoint = get_finalized_checkpoint()
     finalized_epoch = int(finalized_checkpoint["epoch"])
-    active_validator_count = get_active_validator_count_at_finalized()
+    validator_count, average_active_validator_balance = \
+        get_validator_count_and_average_balance_at_state("finalized")
     # Re-check finalized_checkpoint to see if it changed between the last two
     # API calls
     now_finalized_checkpoint = get_finalized_checkpoint()
     now_finalized_epoch = int(now_finalized_checkpoint["epoch"])
     if now_finalized_epoch != finalized_epoch:
-        return atomic_get_finalized_checkpoint_and_validator_count()
+        return atomic_get_finalized_checkpoint()
 
-    return finalized_checkpoint, active_validator_count
+    return (
+        finalized_checkpoint, validator_count, average_active_validator_balance
+    )
 
 
 def update_ws_data_cache():
     logging.info(f'Fetching weak subjectivity data from {ETH2_API}')
-    finalized_checkpoint, active_validator_count = \
-        atomic_get_finalized_checkpoint_and_validator_count()
+    finalized_checkpoint, validator_count, average_active_validator_balance = \
+        atomic_get_finalized_checkpoint()
     finalized_epoch = int(finalized_checkpoint["epoch"])
     finalized_block_root = finalized_checkpoint["root"]
-    ws_period = compute_weak_subjectivity_period(active_validator_count)
+    ws_period = compute_weak_subjectivity_period(
+        validator_count, average_active_validator_balance
+    )
     ws_data = {
         "finalized_epoch": finalized_epoch,
         "ws_checkpoint": f'{finalized_block_root}:{finalized_epoch}',
