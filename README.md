@@ -19,7 +19,7 @@ This repo contains a simple Eth2 [weak subjectivity](https://github.com/ethereum
 #### Connecting to Beacon Node running in a Docker container
 If your beacon node is running inside a Docker container on the same machine, you will have to connect to it by routing through the Docker network stack:
 - Find the gateway that the beacon node container uses in the Docker network using: `docker inspect <CONTAINER_NAME> -f "{{json .NetworkSettings.Gateway}}"`
-- For the `ETH2_API` variable in the `.env` file, use this gateway IP and the host port that you have mapped to the beacon node container's HTTP API port.
+- For the `eth2_api` variable in `config.yml`, use this gateway IP and the host port that you have mapped to the beacon node container's HTTP API port.
 - For example, if the gateway used by the beacon node container is `172.17.0.1` and the HTTP API port of the beacon node is mapped to host port `5052`, set `ETH2_API=http://172.17.0.1:5052`
 
 ## User guide
