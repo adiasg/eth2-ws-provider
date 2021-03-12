@@ -4,4 +4,4 @@ RUN make docker
 COPY ./ws_server.py ./ws_server.py
 EXPOSE 80
 
-CMD [ "uwsgi", "/app/my_config.yml" ]
+CMD [ "uwsgi", "/app/config.yml" ]
