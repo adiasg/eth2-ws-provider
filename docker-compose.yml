@@ -5,17 +5,15 @@ services:
     image: "redis"
     ports:
       - 6379
-    # network_mode: host
     networks:
-      - my-external-network
+      - ws_network
   eth2_ws_server:
     build:
       context: .
       dockerfile: Dockerfile
     image: "eth2_ws_server"
-    # network_mode: host
     networks:
-      - my-external-network
+      - ws_network
     volumes:
       - .:/app
     depends_on:
@@ -24,5 +22,6 @@ services:
       - "0.0.0.0:8081:8081"
 
 networks:
-  my-external-network:
+  # NOTE: this assumes that the user has already greated the ws_network and has also confiured the lodestar docker-compose.yml to use the same network
+  ws_network:
     external: true
