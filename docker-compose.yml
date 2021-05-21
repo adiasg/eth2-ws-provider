@@ -5,14 +5,24 @@ services:
     image: "redis"
     ports:
       - 6379
+    # network_mode: host
+    networks:
+      - my-external-network
   eth2_ws_server:
     build:
       context: .
       dockerfile: Dockerfile
     image: "eth2_ws_server"
+    # network_mode: host
+    networks:
+      - my-external-network
     volumes:
       - .:/app
     depends_on:
       - redis
     ports:
-      - "0.0.0.0:80:80"
+      - "0.0.0.0:8081:8081"
+
+networks:
+  my-external-network:
+    external: true

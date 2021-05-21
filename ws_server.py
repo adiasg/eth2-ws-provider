@@ -53,7 +53,7 @@ def get_current_epoch():
 
 def get_finalized_checkpoint():
     finality_checkpoints = query_eth2_api(
-        '/eth/v1/beacon/states/finalized/finality_checkpoints'
+        '/eth/v1/beacon/states/head/finality_checkpoints'
         )
     finalized_checkpoint = finality_checkpoints["data"]["finalized"]
     return finalized_checkpoint
@@ -80,7 +80,7 @@ def get_active_validator_count_at_state(state_id):
 
 
 def get_active_validator_count_at_finalized():
-    return get_active_validator_count_at_state("finalized")
+    return get_active_validator_count_at_state("head")
 
 
 def get_avg_validator_balance_at_state(state_id):
@@ -95,7 +95,7 @@ def get_avg_validator_balance_at_state(state_id):
 
 
 def get_avg_validator_balance_at_finalized():
-    return get_avg_validator_balance_at_state("finalized")
+    return get_avg_validator_balance_at_state("head")
 
 
 def compute_validator_churn_limit(active_validator_count):
@@ -165,10 +165,14 @@ def update_ws_data_cache():
     ws_period = compute_weak_subjectivity_period(active_validator_count,
                                                  avg_validator_balance)
     logging.debug(f"Computed WS period: {ws_period}")
+    ws_state = query_eth2_api(
+        f'/eth/v1/debug/beacon/states/{finalized_epoch * 32}'
+    )
     ws_data = {
         "finalized_epoch": finalized_epoch,
         "ws_checkpoint": f'{finalized_block_root}:{finalized_epoch}',
         "ws_period": ws_period,
+        "ws_state": ws_state,
     }
     current_epoch = get_current_epoch()
     ws_data_cache = {
@@ -232,7 +236,8 @@ def prepare_response():
         "current_epoch": current_epoch,
         "ws_checkpoint": ws_data["ws_checkpoint"],
         "ws_period": ws_data["ws_period"],
-        "is_safe": current_epoch_in_ws_period
+        "is_safe": current_epoch_in_ws_period,
+        "ws_state": ws_data["ws_state"],
     }
     if WS_SERVER_GRAFFITI:
         response['graffiti'] = WS_SERVER_GRAFFITI

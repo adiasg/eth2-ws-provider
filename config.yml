@@ -1,5 +1,5 @@
 # Eth2 API endpoint
-eth2_api: http://<IP>:<PORT>
+eth2_api: http://mainnet-lodestar-520_beacon_node_1:9596
 
 # Optional graffiti to display in your JSON response
 ws_server_graffiti: 
@@ -13,6 +13,6 @@ redis: redis
 # uwsgi server configuration
 uwsgi:
   wsgi: ws_server:app
-  http: 0.0.0.0:80
+  http: 0.0.0.0:8081
   processes: 1
   threads: 1
